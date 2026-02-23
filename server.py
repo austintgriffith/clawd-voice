@@ -37,8 +37,18 @@ Keep ALL responses SHORT — 1-3 sentences max.
 You are talking out loud so NEVER use markdown, bullet points, headers, or emoji.
 Be conversational, warm, and direct."""
 
+# Load TOOLS.md so the agent knows how to use nerve cord, nerve cord send.js, etc.
+def load_tools_md():
+    tools_path = Path(__file__).parent.parent / "TOOLS.md"
+    if tools_path.exists():
+        return tools_path.read_text()
+    return ""
+
+TOOLS_MD = load_tools_md()
+
 # Injected before every openclaw voice request so it knows to be brief + voice-friendly
-VOICE_PREFIX = "[VOICE MODE] Respond in 1-3 short spoken sentences. No markdown, no bullet points, no emoji. Be warm and direct."
+_TOOLS_CONTEXT = f"\n\n[TOOLS REFERENCE]\n{TOOLS_MD}" if TOOLS_MD else ""
+VOICE_PREFIX = f"[VOICE MODE] You are clawd, Austin's AI agent with full tool access. Respond in 1-3 short spoken sentences. No markdown, no bullet points, no emoji. Be warm and direct. NEVER output NO_REPLY or control tokens. When using tools like the nerve cord, use the send.js script at ~/nerve-cord/send.js with TOKEN, BOTNAME, and SERVER env vars.{_TOOLS_CONTEXT}"
 SMALLTTS_DIR = os.path.expanduser("~/smalltts")
 PORT = 7800
 
