@@ -187,7 +187,6 @@
 <p class="subtitle">hold a brain to talk · release to send</p>
 
 <div id="chat-log">
-  <div class="msg system">Hold any brain button and speak. Release to send.</div>
 </div>
 
 <div id="bottom-panel">
@@ -202,15 +201,15 @@
     <div class="agent-voice">Rishi</div>
     <div class="agent-key">X</div>
   </div>
-  <div class="agent-btn" data-agent="mini" data-backend="openai" data-model="gpt-4o-mini" data-key="C">
-    <div class="agent-icon">🚀</div>
-    <div class="agent-name">4o-mini</div>
+  <div class="agent-btn" data-agent="mini" data-backend="ollama" data-model="deepseek-r1:70b" data-key="C">
+    <div class="agent-icon">🧠</div>
+    <div class="agent-name">DeepSeek R1</div>
     <div class="agent-voice">Eddy</div>
     <div class="agent-key">C</div>
   </div>
-  <div class="agent-btn" data-agent="llama" data-backend="ollama" data-model="llama3.3:latest" data-key="V">
-    <div class="agent-icon">🦙</div>
-    <div class="agent-name">Llama 70b</div>
+  <div class="agent-btn" data-agent="llama" data-backend="ollama" data-model="qwen3-coder-next:latest" data-key="V">
+    <div class="agent-icon">🧑‍💻</div>
+    <div class="agent-name">Qwen3-Coder</div>
     <div class="agent-voice">Karen</div>
     <div class="agent-key">V</div>
   </div>
@@ -237,14 +236,9 @@
 <div id="active-brain">last used: <span id="brain-name">none</span></div>
 <div id="status">ready</div>
 
-<div class="text-row">
-  <input id="text-input" type="text" placeholder="Type to any brain..." />
-  <button id="send-btn">Send</button>
-</div>
 
 <div class="bottom-row">
   <button id="new-context-btn">+ new context</button>
-  <button id="preview-btn">preview all</button>
   <button id="reset-btn">clear all</button>
 </div>
 
@@ -342,7 +336,7 @@ function renderChatLog() {
   chatLog.innerHTML = "";
   const sess = currentSession();
   if (!sess || !sess.messages || !sess.messages.length) {
-    chatLog.innerHTML = '<div class="msg system">Hold any brain button and speak. Release to send.</div>';
+    chatLog.innerHTML = '';
     return;
   }
   sess.messages.forEach(m => {
@@ -462,32 +456,48 @@ async function streamToAgent({ text, backend, model, history, agentKey, agentNam
       let fullReply = "";
       let sentenceBuffer = "";  // accumulates tokens until sentence boundary
       let eventName = "";
-      let ttsQueue = Promise.resolve(); // serialize TTS playback
+
       let sentenceCount = 0;
 
       const SENTENCE_END = /[.!?][)\s"']?$/;
 
+      // Browser-native TTS — zero network latency
+      const synth = window.speechSynthesis;
+      let synthVoice = null;
+      const voiceNameMap = {
+        sonnet: "Samantha", opus: "Rocko", gpt4o: "Daniel",
+        mini: "Eddy", qwen: "Rishi", llama: "Karen"
+      };
+      function getSynthVoice() {
+        if (synthVoice) return synthVoice;
+        const target = voiceNameMap[agentKey] || "Samantha";
+        const voices = synth.getVoices();
+        synthVoice = voices.find(v => v.name.includes(target))
+                  || voices.find(v => v.lang && v.lang.startsWith("en"))
+                  || voices[0];
+        return synthVoice;
+      }
+      synth.getVoices(); // pre-load
+
+      function speakNow(text) {
+        const t = text.trim();
+        if (!t) return;
+        const utt = new SpeechSynthesisUtterance(t);
+        utt.voice = getSynthVoice();
+        utt.rate = 1.15;
+        synth.speak(utt);
+      }
+
       function flushSentence(force = false) {
         const trimmed = sentenceBuffer.trim();
         if (!trimmed) return;
-        if (force || SENTENCE_END.test(trimmed)) {
-          const sentence = trimmed;
+        const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
+        const isFirstChunk = sentenceCount === 0;
+        // Fire on: first 2 words, sentence end, or force flush
+        if (force || SENTENCE_END.test(trimmed) || (isFirstChunk && wordCount >= 2)) {
+          speakNow(trimmed);
           sentenceBuffer = "";
           sentenceCount++;
-          const isFirst = sentenceCount === 1;
-          // Chain TTS so sentences play in order
-          ttsQueue = ttsQueue.then(async () => {
-            if (isFirst) setStatus("🔊 speaking...", "active");
-            try {
-              const av = agentVoices[agentKey] || { voice: "Samantha", rate: 210 };
-              const r = await fetch(`${SERVER}/speak`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ text: sentence, voice: av.voice, rate: av.rate })
-              });
-              if (r.ok) await playAudio(await r.blob());
-            } catch(e) { console.warn("TTS chunk failed:", e); }
-          });
         }
       }
 
@@ -522,7 +532,7 @@ async function streamToAgent({ text, backend, model, history, agentKey, agentNam
                 // Flush any remaining sentence fragment
                 flushSentence(true);
                 // Wait for all TTS to finish
-                await ttsQueue;
+
                 setStatus("ready — hold a brain to talk");
                 const sess = currentSession();
                 if (!sess.messages) sess.messages = [];
@@ -551,7 +561,7 @@ async function streamToAgent({ text, backend, model, history, agentKey, agentNam
       if (fullReply) {
         cursor.remove();
         flushSentence(true);
-        await ttsQueue;
+
         resolve(fullReply);
       } else {
         reject(new Error("empty stream"));
@@ -664,7 +674,9 @@ function setupRecognition(btn) {
 }
 
 function startListening(btn) {
-  if (processing || listening) return;
+  if (listening) return;
+  window.speechSynthesis.cancel(); // interrupt any ongoing TTS
+  processing = false;
   activeBtn = btn; defaultTextAgent = btn.dataset.agent;
   recognition = setupRecognition(btn);
   if (!recognition) return;
