@@ -79,7 +79,13 @@
   .agent-btn .agent-name  { font-size: 0.68rem; font-weight: 700; letter-spacing:.01em; }
   .agent-btn .agent-desc  { display: none; } /* hidden in compact mode */
   .agent-btn .agent-speed { display: none; }
-  .agent-btn .agent-voice { font-size: 0.58rem; margin-top:3px; opacity:.4; font-style:italic; }
+  .agent-btn .agent-voice { font-size: 0.58rem; margin-top:2px; opacity:.4; font-style:italic; }
+  .agent-btn .agent-key {
+    position: absolute; top: 5px; right: 7px;
+    font-size: 0.6rem; font-weight: 700; opacity:.35;
+    background: rgba(255,255,255,.06); border-radius: 3px;
+    padding: 1px 4px; font-family: monospace;
+  }
 
   /* Color themes per agent */
   .agent-btn[data-agent="sonnet"] { background:#130f2e; border-color:#2d1f6e; color:#a78bfa; }
@@ -190,41 +196,41 @@
 <p class="agents-label">choose your brain</p>
 
 <div class="agent-grid">
-  <div class="agent-btn" data-agent="qwen" data-backend="ollama" data-model="qwen2.5:7b">
+  <div class="agent-btn" data-agent="qwen" data-backend="ollama" data-model="qwen2.5:7b" data-key="X">
     <div class="agent-icon">🏠</div>
     <div class="agent-name">Qwen 7b</div>
-    <div class="agent-desc">local · offline</div>
     <div class="agent-voice">Rishi</div>
+    <div class="agent-key">X</div>
   </div>
-  <div class="agent-btn" data-agent="mini" data-backend="openai" data-model="gpt-4o-mini">
+  <div class="agent-btn" data-agent="mini" data-backend="openai" data-model="gpt-4o-mini" data-key="C">
     <div class="agent-icon">🚀</div>
     <div class="agent-name">4o-mini</div>
-    <div class="agent-desc">fast · no memory</div>
     <div class="agent-voice">Eddy</div>
+    <div class="agent-key">C</div>
   </div>
-  <div class="agent-btn" data-agent="llama" data-backend="ollama" data-model="llama3.3:latest">
+  <div class="agent-btn" data-agent="llama" data-backend="ollama" data-model="llama3.3:latest" data-key="V">
     <div class="agent-icon">🦙</div>
     <div class="agent-name">Llama 70b</div>
-    <div class="agent-desc">local · smartest</div>
     <div class="agent-voice">Karen</div>
+    <div class="agent-key">V</div>
   </div>
-  <div class="agent-btn" data-agent="gpt4o" data-backend="openai" data-model="gpt-4o">
+  <div class="agent-btn" data-agent="gpt4o" data-backend="openai" data-model="gpt-4o" data-key="B">
     <div class="agent-icon">⚡</div>
     <div class="agent-name">GPT-4o</div>
-    <div class="agent-desc">smart · no memory</div>
     <div class="agent-voice">Daniel</div>
+    <div class="agent-key">B</div>
   </div>
-  <div class="agent-btn" data-agent="sonnet" data-backend="openclaw" data-model="openclaw:clawdadsonnet">
+  <div class="agent-btn" data-agent="sonnet" data-backend="openclaw" data-model="openclaw:clawdadsonnet" data-key="N">
     <div class="agent-icon">🦞</div>
     <div class="agent-name">Sonnet</div>
-    <div class="agent-desc">clawd · full memory</div>
     <div class="agent-voice">Samantha</div>
+    <div class="agent-key">N</div>
   </div>
-  <div class="agent-btn" data-agent="opus" data-backend="openclaw" data-model="openclaw:clawdadopus">
+  <div class="agent-btn" data-agent="opus" data-backend="openclaw" data-model="openclaw:clawdadopus" data-key="M">
     <div class="agent-icon">🧠</div>
     <div class="agent-name">Opus</div>
-    <div class="agent-desc">clawd · deepest thinker</div>
     <div class="agent-voice">Rocko</div>
+    <div class="agent-key">M</div>
   </div>
 </div>
 
@@ -738,17 +744,40 @@ previewBtn.addEventListener("click", async () => {
   } finally { previewBtn.disabled=false; previewBtn.textContent="preview all"; }
 });
 
-// Spacebar PTT
-let spaceHeld = false;
+// Keyboard PTT — X C V B N M + Space
+const keyHeld = {};
 document.addEventListener("keydown", e => {
-  if (e.code==="Space" && !e.target.matches("input") && !spaceHeld) {
-    e.preventDefault(); spaceHeld = true;
+  if (e.target.matches("input") || e.repeat) return;
+  const key = e.key.toUpperCase();
+  if (e.code === "Space") {
+    e.preventDefault();
+    if (keyHeld["Space"]) return;
+    keyHeld["Space"] = true;
     startListening(document.querySelector(`.agent-btn[data-agent="${defaultTextAgent}"]`));
+    return;
+  }
+  const btn = document.querySelector(`.agent-btn[data-key="${key}"]`);
+  if (btn) {
+    e.preventDefault();
+    if (keyHeld[key]) return;
+    keyHeld[key] = true;
+    startListening(btn);
   }
 });
 document.addEventListener("keyup", e => {
-  if (e.code==="Space" && !e.target.matches("input")) {
-    e.preventDefault(); spaceHeld = false; stopListening();
+  if (e.target.matches("input")) return;
+  const key = e.key.toUpperCase();
+  if (e.code === "Space") {
+    e.preventDefault();
+    keyHeld["Space"] = false;
+    stopListening();
+    return;
+  }
+  const btn = document.querySelector(`.agent-btn[data-key="${key}"]`);
+  if (btn) {
+    e.preventDefault();
+    keyHeld[key] = false;
+    stopListening();
   }
 });
 
