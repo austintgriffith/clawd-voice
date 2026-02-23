@@ -1,75 +1,112 @@
-# 🦞 clawd voice
+# 🌊 clawd voice
 
-A local voice chat interface for talking to multiple AI agents simultaneously.  
-Hold a brain button → speak → release → hear the response.
+A local voice chat interface for talking to multiple AI agents with distinct voices.  
+Hold a brain button (or keyboard key) → speak → release → hear the response instantly.
+
+**Repo:** [github.com/clawdbotatg/clawd-voice](https://github.com/clawdbotatg/clawd-voice)
 
 ## Features
 
-- **6 AI brains** with distinct voices — Sonnet, Opus, GPT-4o, 4o-mini, Qwen 7b, Llama 70b
-- **Browser-native STT** — Chrome's built-in speech recognition, zero latency
-- **macOS `say` TTS** — instant local speech synthesis, distinct voice per model
+- **7 AI brains** with distinct voices — Sonnet, Opus, GPT-4o, DeepSeek R1, Qwen3-Coder, Qwen 7b + clawd+ super-context
+- **Keyboard PTT** — hold `X C V B N M` or `Space` to activate each brain
+- **Browser Web Speech API TTS** — fires on the first 2 words, zero network latency
+- **Instant interruption** — hold any key mid-speech to cut off and re-record
+- **Sentence-streaming** — TTS fires per sentence as the LLM generates, not after
+- **🌊 clawd+ super-context brain** — pulls live nerve cord log, priorities, MEMORY.md, and recent git commits before every query
+- **Sonnet + Opus have real tool access** — browser, exec, nerve cord messaging via OpenClaw
 - **Shared transcript** — switch between models mid-conversation, context follows you
-- **LocalStorage persistence** — sessions survive page refresh
-- **Multiple contexts** — create new conversations, switch between them
+- **LocalStorage persistence** — sessions survive page refresh, multiple contexts supported
+- **NO_REPLY scrubbing** — strips agent control tokens before display or speech
+- **Voice-only UI** — no text input, no clutter, just brains and a chat log
 
 ## Setup
 
 ### Requirements
-- macOS (uses `say` for TTS)
+- macOS
 - Python 3.10+
-- Chrome (for `webkitSpeechRecognition`)
-- [OpenClaw](https://openclaw.ai) gateway running locally (optional — for Sonnet/Opus)
-- [Ollama](https://ollama.ai) running locally (optional — for Qwen/Llama)
+- Chrome (for `webkitSpeechRecognition` + Web Speech TTS)
+- [OpenClaw](https://openclaw.ai) gateway running locally (for Sonnet/Opus/clawd+)
+- [Ollama](https://ollama.ai) running locally (for Qwen/DeepSeek/Qwen3-Coder)
 
 ### Install & run
 
 ```bash
-# Clone
-git clone https://github.com/austingriffith/clawd-voice
+git clone https://github.com/clawdbotatg/clawd-voice
 cd clawd-voice
 
-# Set env vars (or let it auto-load from ~/.openclaw/openclaw.json)
+# Keys auto-load from ~/.openclaw/openclaw.json if you have OpenClaw installed
+# Or set manually:
 export OPENAI_API_KEY=sk-...
-export OPENCLAW_TOKEN=...   # from openclaw.json > gateway.auth.token
+export OPENCLAW_TOKEN=...
 export OPENCLAW_URL=http://127.0.0.1:18789/v1/chat/completions
 
-# Run
 python3 server.py
 ```
 
 Open `http://127.0.0.1:7800` in Chrome.
 
-### Environment variables
+## Keyboard shortcuts
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `OPENAI_API_KEY` | OpenAI API key (for GPT-4o / 4o-mini) | auto-loaded from openclaw config |
-| `OPENCLAW_TOKEN` | OpenClaw gateway auth token | auto-loaded from openclaw config |
-| `OPENCLAW_URL` | OpenClaw gateway URL | `http://127.0.0.1:18789/v1/chat/completions` |
-| `OPENCLAW_MODEL` | Default OpenClaw agent | `openclaw:clawdadsonnet` |
+| Key | Brain | Voice |
+|-----|-------|-------|
+| `X` | 🏠 Qwen 7b (local, fast) | Rishi |
+| `C` | 🧠 DeepSeek R1 70b (local, smart) | Eddy |
+| `V` | 🧑‍💻 Qwen3-Coder (local, beefy) | Karen |
+| `B` | ⚡ GPT-4o | Daniel |
+| `N` | 🦞 Sonnet (clawd, full memory + tools) | Samantha |
+| `M` | 🧠 Opus (clawd, deepest thinker + tools) | Rocko |
+| `Space` | 🌊 clawd+ (super-context, live data) | Samantha |
 
-> **Note:** If you have OpenClaw installed, API keys are auto-loaded from `~/.openclaw/openclaw.json` — no `.env` file needed.
+Hold to record → release to send. Press again mid-speech to interrupt.
 
-## Agents & voices
+## Agents
 
-| Brain | Model | Voice | Speed |
-|-------|-------|-------|-------|
-| 🏠 Qwen 7b | `qwen2.5:7b` (Ollama) | Rishi | ~0.4s |
-| 🚀 4o-mini | `gpt-4o-mini` | Eddy | ~0.3s |
-| 🦙 Llama 70b | `llama3.3:latest` (Ollama) | Karen | ~2.5s |
-| ⚡ GPT-4o | `gpt-4o` | Daniel | ~0.6s |
-| 🦞 Sonnet | `claude-sonnet-4-6` via OpenClaw | Samantha | ~1.5s |
-| 🧠 Opus | `claude-opus-4-6` via OpenClaw | Rocko | ~3s |
+### Raw models (no tools)
+- **Qwen 7b** — fastest local, great for quick questions
+- **DeepSeek R1 70b** — chain-of-thought reasoning, slow but thorough
+- **Qwen3-Coder** — 51GB local beast, coding-focused
+- **GPT-4o** — fast cloud, smart, no memory
+
+### OpenClaw agents (full tool access ✅)
+- **🦞 Sonnet** — Claude Sonnet via OpenClaw with Austin's full memory, can use browser/exec/nerve cord
+- **🧠 Opus** — Claude Opus via OpenClaw, same tools, deeper reasoning
+- **🌊 clawd+** — Sonnet with live context injected: today's nerve cord log, priorities, MEMORY.md, recent git commits
 
 ## How it works
 
 ```
-voice → Chrome STT (instant) → server /think → LLM → server /speak → macOS say → audio
+Hold key → Chrome STT (instant local) → server → LLM stream → Web Speech TTS (fires on word 2)
 ```
 
-Switching models mid-conversation: each new brain receives a transcript of the prior conversation so it can pick up seamlessly (Option C shared context).
+### TTS pipeline
+- Web Speech API speaks inline — zero server round-trip
+- Fires after first 2 words arrive in the stream
+- Subsequent sentences queue and play in order
+- Any keypress cancels ongoing speech immediately
+
+### clawd+ context assembly
+Before every query, `/stream-clawd` fetches:
+1. `MEMORY.md` — Austin's full memory and mission context
+2. `TOOLS.md` — nerve cord usage, priorities API
+3. Nerve cord log (today's activity)
+4. Current priorities from nerve cord
+5. Recent git commits from active repos
+
+### NO_REPLY scrubbing
+OpenClaw agents sometimes append `NO_REPLY` as a control token. The server scrubs it across token boundaries before emitting to the frontend, and the frontend has a secondary scrub layer.
 
 ## Files
 
-- `server.py` — Python HTTP server, handles LLM routing + TTS
-- `index.html` — Single-page frontend, all JS inline
+- `server.py` — Python HTTP server: LLM routing, context assembly, SSE streaming, TTS
+- `index.html` — Single-page frontend: Web Speech STT/TTS, streaming bubbles, keyboard PTT
+
+## Environment variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `OPENAI_API_KEY` | OpenAI API key (GPT-4o) | auto-loaded from openclaw config |
+| `OPENCLAW_TOKEN` | OpenClaw gateway auth token | auto-loaded from openclaw config |
+| `OPENCLAW_URL` | OpenClaw gateway URL | `http://127.0.0.1:18789/v1/chat/completions` |
+| `OPENCLAW_MODEL` | Default OpenClaw agent model | `openclaw:clawdadsonnet` |
+
+> Keys auto-load from `~/.openclaw/openclaw.json` if OpenClaw is installed — no `.env` needed.
