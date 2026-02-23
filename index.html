@@ -454,7 +454,36 @@ async function streamToAgent({ text, backend, model, history, agentKey, agentNam
       const decoder = new TextDecoder();
       let buffer = "";
       let fullReply = "";
+      let sentenceBuffer = "";  // accumulates tokens until sentence boundary
       let eventName = "";
+      let ttsQueue = Promise.resolve(); // serialize TTS playback
+      let sentenceCount = 0;
+
+      const SENTENCE_END = /[.!?][)\s"']?$/;
+
+      function flushSentence(force = false) {
+        const trimmed = sentenceBuffer.trim();
+        if (!trimmed) return;
+        if (force || SENTENCE_END.test(trimmed)) {
+          const sentence = trimmed;
+          sentenceBuffer = "";
+          sentenceCount++;
+          const isFirst = sentenceCount === 1;
+          // Chain TTS so sentences play in order
+          ttsQueue = ttsQueue.then(async () => {
+            if (isFirst) setStatus("🔊 speaking...", "active");
+            try {
+              const av = agentVoices[agentKey] || { voice: "Samantha", rate: 210 };
+              const r = await fetch(`${SERVER}/speak`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ text: sentence, voice: av.voice, rate: av.rate })
+              });
+              if (r.ok) await playAudio(await r.blob());
+            } catch(e) { console.warn("TTS chunk failed:", e); }
+          });
+        }
+      }
 
       while (true) {
         const { done, value } = await reader.read();
@@ -462,7 +491,7 @@ async function streamToAgent({ text, backend, model, history, agentKey, agentNam
         buffer += decoder.decode(value, { stream: true });
 
         const lines = buffer.split("\n");
-        buffer = lines.pop(); // keep incomplete line
+        buffer = lines.pop();
 
         for (const line of lines) {
           if (line.startsWith("event: ")) {
@@ -472,40 +501,55 @@ async function streamToAgent({ text, backend, model, history, agentKey, agentNam
             try {
               const parsed = JSON.parse(data);
               if (eventName === "token") {
-                fullReply += parsed;
+                const token = parsed;
+                fullReply += token;
+                sentenceBuffer += token;
                 content.textContent = fullReply;
                 content.appendChild(cursor);
                 chatLog.scrollTop = chatLog.scrollHeight;
-                setStatus(`🧠 ${agentName} thinking...`, "active");
+                setStatus(`🧠 ${agentName}...`, "active");
+                flushSentence();
               } else if (eventName === "done") {
                 fullReply = parsed.reply || fullReply;
                 content.textContent = fullReply;
                 cursor.remove();
-                // Save to localStorage
+                // Flush any remaining sentence fragment
+                flushSentence(true);
+                // Wait for all TTS to finish
+                await ttsQueue;
+                setStatus("ready — hold a brain to talk");
                 const sess = currentSession();
                 if (!sess.messages) sess.messages = [];
                 sess.messages.push({ text: fullReply, role: "agent", agentKey });
                 saveNow();
                 resolve(fullReply);
+                return;
               } else if (eventName === "error") {
                 throw new Error(parsed);
               }
             } catch(e) {
               if (eventName === "token") {
-                // raw string token
                 fullReply += data;
+                sentenceBuffer += data;
                 content.textContent = fullReply;
                 content.appendChild(cursor);
                 chatLog.scrollTop = chatLog.scrollHeight;
+                flushSentence();
               }
             }
             eventName = "";
           }
         }
       }
-      // If stream ended without done event
-      if (fullReply) { cursor.remove(); resolve(fullReply); }
-      else reject(new Error("empty stream"));
+      // Stream ended without done event
+      if (fullReply) {
+        cursor.remove();
+        flushSentence(true);
+        await ttsQueue;
+        resolve(fullReply);
+      } else {
+        reject(new Error("empty stream"));
+      }
 
     } catch(err) {
       cursor.remove();
@@ -569,17 +613,7 @@ async function sendToAgent(text, btn) {
     sess.transcript.push({ role:"assistant", content: reply, agentKey, agentName });
     saveNow();
 
-    setStatus("🔊 forming speech...", "active");
-    const av = agentVoices[agentKey] || { voice: "Samantha", rate: 210 };
-    const speakRes = await fetch(`${SERVER}/speak`, {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ text: reply, voice: av.voice, rate: av.rate })
-    });
-    if (!speakRes.ok) throw new Error(`speak HTTP ${speakRes.status}`);
-
-    setStatus("▶️ playing...", "active");
-    await playAudio(await speakRes.blob());
-    setStatus("ready — hold a brain to talk");
+    // TTS is handled inside streamToAgent sentence-by-sentence
 
   } catch(err) {
     setStatus(`error: ${err.message}`, "error");
