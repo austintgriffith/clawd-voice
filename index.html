@@ -35,6 +35,8 @@
   .msg.system  { background:transparent; border:1px dashed #2a2a2a; align-self:center; color:#444; font-size:0.75rem; padding:5px 12px; }
   .msg .label  { font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:.05em; margin-bottom:4px; opacity:.5; }
   .msg .brain-tag { font-size:0.68rem; opacity:.4; margin-left:6px; }
+  .cursor { animation: blink .7s step-end infinite; opacity:.7; }
+  @keyframes blink { 0%,100%{opacity:.7} 50%{opacity:0} }
 
   /* Fixed bottom panel */
   #bottom-panel {
@@ -411,6 +413,108 @@ function buildHandoffContext(sess, agentKey) {
   return `[Conversation so far — you are picking up from this]\n${lines.join("\n")}\n[End of prior context. Continue naturally from here.]`;
 }
 
+// ── Streaming live bubble ─────────────────────────────────────────────────────
+async function streamToAgent({ text, backend, model, history, agentKey, agentName }) {
+  // Create a live agent bubble
+  const div = document.createElement("div");
+  div.className = "msg agent";
+  const label = document.createElement("div");
+  label.className = "label";
+  label.textContent = "clawd";
+  const tag = document.createElement("span");
+  tag.className = "brain-tag";
+  const btn = document.querySelector(`.agent-btn[data-agent="${agentKey}"]`);
+  tag.textContent = btn ? ` via ${agentLabel(btn)}` : ` via ${agentKey}`;
+  label.appendChild(tag);
+  div.appendChild(label);
+
+  const content = document.createElement("div");
+  content.className = "stream-content";
+  div.appendChild(content);
+
+  // Blinking cursor
+  const cursor = document.createElement("span");
+  cursor.className = "cursor";
+  cursor.textContent = "▋";
+  content.appendChild(cursor);
+
+  chatLog.appendChild(div);
+  chatLog.scrollTop = chatLog.scrollHeight;
+
+  return new Promise(async (resolve, reject) => {
+    try {
+      const res = await fetch(`${SERVER}/stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, backend, model, history })
+      });
+      if (!res.ok) throw new Error(`stream HTTP ${res.status}`);
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let fullReply = "";
+      let eventName = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split("\n");
+        buffer = lines.pop(); // keep incomplete line
+
+        for (const line of lines) {
+          if (line.startsWith("event: ")) {
+            eventName = line.slice(7).trim();
+          } else if (line.startsWith("data: ")) {
+            const data = line.slice(6).trim();
+            try {
+              const parsed = JSON.parse(data);
+              if (eventName === "token") {
+                fullReply += parsed;
+                content.textContent = fullReply;
+                content.appendChild(cursor);
+                chatLog.scrollTop = chatLog.scrollHeight;
+                setStatus(`🧠 ${agentName} thinking...`, "active");
+              } else if (eventName === "done") {
+                fullReply = parsed.reply || fullReply;
+                content.textContent = fullReply;
+                cursor.remove();
+                // Save to localStorage
+                const sess = currentSession();
+                if (!sess.messages) sess.messages = [];
+                sess.messages.push({ text: fullReply, role: "agent", agentKey });
+                saveNow();
+                resolve(fullReply);
+              } else if (eventName === "error") {
+                throw new Error(parsed);
+              }
+            } catch(e) {
+              if (eventName === "token") {
+                // raw string token
+                fullReply += data;
+                content.textContent = fullReply;
+                content.appendChild(cursor);
+                chatLog.scrollTop = chatLog.scrollHeight;
+              }
+            }
+            eventName = "";
+          }
+        }
+      }
+      // If stream ended without done event
+      if (fullReply) { cursor.remove(); resolve(fullReply); }
+      else reject(new Error("empty stream"));
+
+    } catch(err) {
+      cursor.remove();
+      content.textContent = `⚠️ ${err.message}`;
+      reject(err);
+    }
+  });
+}
+
 // ── Send to agent ─────────────────────────────────────────────────────────────
 async function sendToAgent(text, btn) {
   if (processing || !text.trim()) return;
@@ -454,17 +558,16 @@ async function sendToAgent(text, btn) {
   try {
     setStatus(`🧠 ${agentName} thinking...`, "active");
 
-    const thinkRes = await fetch(`${SERVER}/think`, {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ text, backend, model, history: sess.histories[agentKey] })
+    // Stream tokens into a live bubble
+    const reply = await streamToAgent({
+      text, backend, model,
+      history: sess.histories[agentKey],
+      agentKey, agentName
     });
-    if (!thinkRes.ok) throw new Error(`think HTTP ${thinkRes.status}`);
-    const { reply } = await thinkRes.json();
 
     sess.histories[agentKey].push({ role:"assistant", content: reply });
     sess.transcript.push({ role:"assistant", content: reply, agentKey, agentName });
     saveNow();
-    renderMessage(reply, "agent", agentKey);
 
     setStatus("🔊 forming speech...", "active");
     const av = agentVoices[agentKey] || { voice: "Samantha", rate: 210 };

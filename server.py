@@ -45,6 +45,62 @@ PORT = 7800
 # Conversation history for context
 conversation_history = []
 
+def stream_llm(user_text: str, backend: str = None, model: str = None,
+               history: list = None, emit_token=None) -> str:
+    """Stream tokens from LLM, calling emit_token(chunk) for each piece. Returns full reply."""
+    backend = backend or LLM_BACKEND
+    msgs = history if history is not None else [{"role": "user", "content": user_text}]
+
+    if backend == "openclaw":
+        use_model = model or OPENCLAW_CHAT_MODEL
+        messages = list(msgs)
+        messages[-1] = {"role": "user", "content": f"{VOICE_PREFIX}\n\n{messages[-1]['content']}"}
+        payload = json.dumps({"model": use_model, "messages": messages, "stream": True}).encode()
+        req = Request(OPENCLAW_CHAT_URL, data=payload, headers={
+            "Authorization": f"Bearer {OPENCLAW_CHAT_TOKEN}",
+            "Content-Type": "application/json"
+        })
+        timeout = 60
+    elif backend == "openai":
+        use_model = model or OPENAI_MODEL
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}] + msgs
+        api_key = os.environ.get("OPENAI_API_KEY", "")
+        payload = json.dumps({"model": use_model, "messages": messages, "stream": True, "max_tokens": 150}).encode()
+        req = Request(OPENAI_URL, data=payload, headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}"
+        })
+        timeout = 30
+    else:
+        # Ollama
+        use_model = model or OLLAMA_MODEL
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}] + msgs
+        payload = json.dumps({"model": use_model, "messages": messages, "stream": True}).encode()
+        req = Request(OLLAMA_URL, data=payload, headers={"Content-Type": "application/json"})
+        timeout = 60
+
+    full_reply = ""
+    with urlopen(req, timeout=timeout) as resp:
+        for raw_line in resp:
+            line = raw_line.decode("utf-8").strip()
+            if not line or line == "data: [DONE]":
+                continue
+            if line.startswith("data: "):
+                line = line[6:]
+            try:
+                chunk = json.loads(line)
+                delta = chunk.get("choices", [{}])[0].get("delta", {})
+                token = delta.get("content", "")
+                if token:
+                    full_reply += token
+                    if emit_token:
+                        emit_token(token)
+            except (json.JSONDecodeError, KeyError, IndexError):
+                continue
+
+    return full_reply
+
+
 def call_llm(user_text: str, backend: str = None, model: str = None, history: list = None) -> str:
     """Send text to LLM, get response. Backend/model/history can be overridden per-request."""
     backend = backend or LLM_BACKEND
@@ -182,6 +238,8 @@ class VoiceChatHandler(BaseHTTPRequestHandler):
             self.handle_chat()
         elif self.path == "/think":
             self.handle_think()
+        elif self.path == "/stream":
+            self.handle_stream()
         elif self.path == "/speak":
             self.handle_speak()
         elif self.path == "/reset":
@@ -243,6 +301,43 @@ class VoiceChatHandler(BaseHTTPRequestHandler):
             import traceback
             traceback.print_exc()
             self.send_json({"error": str(e)}, 500)
+
+    def handle_stream(self):
+        """Stream LLM tokens via SSE. Frontend gets word-by-word updates."""
+        content_length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(content_length)
+        try:
+            data    = json.loads(body)
+            text    = data.get("text", "").strip()
+            backend = data.get("backend", LLM_BACKEND)
+            model   = data.get("model", None)
+            history = data.get("history", None)
+
+            if not text:
+                self.send_json({"error": "No text"}, 400); return
+
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.end_headers()
+
+            def emit(event, data_str):
+                line = f"event: {event}\ndata: {data_str}\n\n"
+                self.wfile.write(line.encode("utf-8"))
+                self.wfile.flush()
+
+            full_reply = stream_llm(text, backend=backend, model=model,
+                                    history=history, emit_token=lambda t: emit("token", json.dumps(t)))
+            emit("done", json.dumps({"reply": full_reply}))
+
+        except Exception as e:
+            import traceback; traceback.print_exc()
+            try:
+                self.wfile.write(f"event: error\ndata: {json.dumps(str(e))}\n\n".encode())
+                self.wfile.flush()
+            except: pass
 
     def handle_think(self):
         """Phase 1: text in → LLM reply text out (fast)."""
