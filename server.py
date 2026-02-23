@@ -14,15 +14,24 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.request import urlopen, Request
 from urllib.error import URLError
 
+# ── Load .env file if present ─────────────────────────────────────────────────
+def load_dotenv():
+    env_path = Path(__file__).parent / ".env"
+    if env_path.exists():
+        for line in env_path.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+load_dotenv()
+
+# ── Config (env vars > .env > openclaw config > defaults) ─────────────────────
 OPENCLAW_URL = "http://127.0.0.1:18789/v1/chat/completions"
 OPENCLAW_TOKEN = os.environ.get("OPENCLAW_TOKEN", "")
 OPENCLAW_MODEL = "openclaw:clawdadsonnet"
 
-# LLM backend config
-# Options: "ollama", "openai", "openclaw"
-# "openclaw" = routes through the full OpenClaw agent (clawd with memory + tools)
 LLM_BACKEND = "openclaw"
-OLLAMA_URL = "http://localhost:11434/v1/chat/completions"
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/v1/chat/completions")
 OLLAMA_MODEL = "qwen2.5:7b"
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 OPENAI_MODEL = "gpt-4o"
@@ -52,8 +61,8 @@ VOICE_PREFIX = f"[VOICE MODE] You are clawd, Austin's AI agent with full tool ac
 SMALLTTS_DIR = os.path.expanduser("~/smalltts")
 PORT = 7800
 
-NERVE_CORD_SERVER = "http://clawds-Mac-mini.local:9999"
-NERVE_CORD_TOKEN  = "NERVE_CORD_TOKEN_REDACTED"
+NERVE_CORD_SERVER = os.environ.get("NERVE_CORD_SERVER", "http://clawds-Mac-mini.local:9999")
+NERVE_CORD_TOKEN  = os.environ.get("NERVE_CORD_TOKEN", "")
 
 def fetch_super_context() -> str:
     """Assemble live context: nerve cord log, priorities, MEMORY.md, TOOLS.md, recent git."""
