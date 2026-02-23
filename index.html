@@ -57,7 +57,7 @@
 
   .agent-grid {
     display: grid;
-    grid-template-columns: repeat(6, 1fr);
+    grid-template-columns: repeat(7, 1fr);
     gap: 8px;
     width: 100%; max-width: 680px;
   }
@@ -229,6 +229,12 @@
     <div class="agent-voice">Rocko</div>
     <div class="agent-key">M</div>
   </div>
+  <div class="agent-btn" data-agent="superclawd" data-backend="superclawd" data-model="superclawd" data-key="SPACE">
+    <div class="agent-icon">🌊</div>
+    <div class="agent-name">clawd+</div>
+    <div class="agent-voice">Samantha</div>
+    <div class="agent-key">SPC</div>
+  </div>
 </div>
 
 <div id="status">ready</div>
@@ -282,7 +288,7 @@ let processing = false;
 let collectedTranscript = "";
 let recognition = null;
 let activeBtn = null;
-let defaultTextAgent = "sonnet";
+let defaultTextAgent = "superclawd";
 
 // ── DOM refs ─────────────────────────────────────────────────────────────────
 const statusEl      = document.getElementById("status");
@@ -436,7 +442,8 @@ async function streamToAgent({ text, backend, model, history, agentKey, agentNam
 
   return new Promise(async (resolve, reject) => {
     try {
-      const res = await fetch(`${SERVER}/stream`, {
+      const endpoint = backend === "superclawd" ? "/stream-clawd" : "/stream";
+      const res = await fetch(`${SERVER}${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text, backend, model, history })
@@ -758,7 +765,7 @@ document.addEventListener("keydown", e => {
     e.preventDefault();
     if (keyHeld["Space"]) return;
     keyHeld["Space"] = true;
-    startListening(document.querySelector(`.agent-btn[data-agent="${defaultTextAgent}"]`));
+    startListening(document.querySelector(`.agent-btn[data-agent="superclawd"]`));
     return;
   }
   const btn = document.querySelector(`.agent-btn[data-key="${key}"]`);
