@@ -293,15 +293,11 @@ let defaultTextAgent = "superclawd";
 // ── DOM refs ─────────────────────────────────────────────────────────────────
 const statusEl      = document.getElementById("status");
 const chatLog       = document.getElementById("chat-log");
-const textInput     = document.getElementById("text-input");
-const sendBtn       = document.getElementById("send-btn");
 const resetBtn      = document.getElementById("reset-btn");
 const newCtxBtn     = document.getElementById("new-context-btn");
 const voiceSelect   = document.getElementById("voice-select");
 const rateSlider    = document.getElementById("rate-slider");
 const rateLabel     = document.getElementById("rate-label");
-const previewBtn    = document.getElementById("preview-btn");
-const brainName     = document.getElementById("brain-name");
 const contextStrip  = document.getElementById("context-strip");
 
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -327,7 +323,6 @@ function switchSession(id) {
   currentSessionId = id;
   renderContextStrip();
   renderChatLog();
-  brainName.textContent = "none";
 }
 
 // ── Chat log rendering ────────────────────────────────────────────────────────
@@ -579,7 +574,6 @@ async function streamToAgent({ text, backend, model, history, agentKey, agentNam
 async function sendToAgent(text, btn) {
   if (processing || !text.trim()) return;
   processing = true;
-  sendBtn.disabled = true;
   document.querySelectorAll(".agent-btn").forEach(b => b.classList.add("processing"));
 
   const backend   = btn.dataset.backend;
@@ -612,7 +606,6 @@ async function sendToAgent(text, btn) {
   // Also add to shared transcript
   sess.transcript.push({ role:"user", content: text, agentKey:"user", agentName:"Austin" });
 
-  brainName.textContent = agentName;
   renderMessage(text, "user", agentKey);
 
   try {
@@ -638,7 +631,6 @@ async function sendToAgent(text, btn) {
     sess.transcript.pop();
   } finally {
     processing = false;
-    sendBtn.disabled = false;
     document.querySelectorAll(".agent-btn").forEach(b => b.classList.remove("processing"));
     if (activeBtn) activeBtn.classList.remove("active","recording");
   }
@@ -696,17 +688,6 @@ document.querySelectorAll(".agent-btn").forEach(btn => {
   btn.addEventListener("touchend",   e => { e.preventDefault(); stopListening(); });
 });
 
-sendBtn.addEventListener("click", () => {
-  const btn = document.querySelector(`.agent-btn[data-agent="${defaultTextAgent}"]`);
-  sendToAgent(textInput.value, btn); textInput.value = "";
-});
-textInput.addEventListener("keydown", e => {
-  if (e.key==="Enter" && !e.shiftKey) {
-    e.preventDefault();
-    const btn = document.querySelector(`.agent-btn[data-agent="${defaultTextAgent}"]`);
-    sendToAgent(textInput.value, btn); textInput.value = "";
-  }
-});
 
 // New context
 newCtxBtn.addEventListener("click", () => {
@@ -717,7 +698,6 @@ newCtxBtn.addEventListener("click", () => {
   saveNow();
   renderContextStrip();
   renderChatLog();
-  brainName.textContent = "none";
   setStatus("new context — hold a brain to talk");
 });
 
@@ -729,32 +709,9 @@ resetBtn.addEventListener("click", () => {
   saveNow();
   renderContextStrip();
   renderChatLog();
-  brainName.textContent = "none";
   setStatus("ready — hold a brain to talk");
 });
 
-// Preview voices
-previewBtn.addEventListener("click", async () => {
-  previewBtn.disabled = true; previewBtn.textContent = "...";
-  const previews = [
-    { agent:"qwen",   text:"Rishi here. Qwen 7b, local and offline." },
-    { agent:"mini",   text:"Eddy here. 4o-mini, lightest and quickest." },
-    { agent:"llama",  text:"Karen here. Llama 70b, big local brain." },
-    { agent:"gpt4o",  text:"Daniel here. GPT-4o, smart and sharp." },
-    { agent:"sonnet", text:"Samantha. Sonnet with full memory." },
-    { agent:"opus",   text:"Rocko. Opus, the deepest thinker." },
-  ];
-  try {
-    for (const p of previews) {
-      const av = agentVoices[p.agent];
-      const res = await fetch(`${SERVER}/speak`, {
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ text: p.text, voice: av.voice, rate: av.rate })
-      });
-      await playAudio(await res.blob());
-    }
-  } finally { previewBtn.disabled=false; previewBtn.textContent="preview all"; }
-});
 
 // Keyboard PTT — X C V B N M + Space
 const keyHeld = {};
