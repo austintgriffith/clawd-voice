@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🎙️ clawd voice</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #0a0a0f;
+    color: #e0e0e0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px 280px 16px; /* bottom padding = fixed panel height */
+  }
+
+  h1 { font-size: 1.3rem; font-weight: 600; color: #a78bfa; margin-bottom: 4px; }
+  .subtitle { font-size: 0.75rem; color: #444; margin-bottom: 28px; }
+
+  /* Chat log */
+  #chat-log {
+    width: 100%; max-width: 680px;
+    display: flex; flex-direction: column; gap: 10px;
+    margin-bottom: 24px;
+    max-height: 42vh; overflow-y: auto;
+  }
+  .msg { padding: 10px 14px; border-radius: 12px; font-size: 0.88rem; line-height: 1.5; max-width: 88%; animation: fadeIn 0.2s ease; }
+  @keyframes fadeIn { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:translateY(0); } }
+  .msg.user    { background:#1e1b4b; border:1px solid #3730a3; align-self:flex-end; color:#c7d2fe; }
+  .msg.agent   { background:#1a1a2e; border:1px solid #2d2d5e; align-self:flex-start; color:#e0e0f0; }
+  .msg.system  { background:transparent; border:1px dashed #2a2a2a; align-self:center; color:#444; font-size:0.75rem; padding:5px 12px; }
+  .msg .label  { font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:.05em; margin-bottom:4px; opacity:.5; }
+  .msg .brain-tag { font-size:0.68rem; opacity:.4; margin-left:6px; }
+
+  /* Fixed bottom panel */
+  #bottom-panel {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    background: #0a0a0f;
+    border-top: 1px solid #161622;
+    padding: 12px 16px 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    z-index: 100;
+  }
+
+  /* Agent buttons grid */
+  .agents-label { font-size:0.7rem; color:#333; text-transform:uppercase; letter-spacing:.08em; margin-bottom:4px; }
+
+  .agent-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 8px;
+    width: 100%; max-width: 680px;
+  }
+
+  .agent-btn {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 10px 4px;
+    border-radius: 12px;
+    border: 2px solid transparent;
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.12s ease;
+    position: relative;
+    min-height: 76px;
+    -webkit-touch-callout: none;
+  }
+
+  .agent-btn .agent-icon  { font-size: 1.3rem; margin-bottom: 4px; }
+  .agent-btn .agent-name  { font-size: 0.68rem; font-weight: 700; letter-spacing:.01em; }
+  .agent-btn .agent-desc  { display: none; } /* hidden in compact mode */
+  .agent-btn .agent-speed { display: none; }
+  .agent-btn .agent-voice { font-size: 0.58rem; margin-top:3px; opacity:.4; font-style:italic; }
+
+  /* Color themes per agent */
+  .agent-btn[data-agent="sonnet"] { background:#130f2e; border-color:#2d1f6e; color:#a78bfa; }
+  .agent-btn[data-agent="opus"]   { background:#150c1a; border-color:#4a1060; color:#d09bff; }
+  .agent-btn[data-agent="gpt4o"]  { background:#0d1f12; border-color:#0d4a1f; color:#6ee7a0; }
+  .agent-btn[data-agent="mini"]   { background:#0d1a10; border-color:#0d3315; color:#4ade80; }
+  .agent-btn[data-agent="qwen"]   { background:#1a150a; border-color:#4a3200; color:#fbbf24; }
+  .agent-btn[data-agent="llama"]  { background:#1a0f0a; border-color:#4a1a00; color:#fb923c; }
+
+  /* Active (holding) state */
+  .agent-btn.active[data-agent="sonnet"] { background:#1e1550; border-color:#7c3aed; box-shadow:0 0 20px rgba(124,58,237,.4); transform:scale(0.97); }
+  .agent-btn.active[data-agent="opus"]   { background:#2a0f35; border-color:#9333ea; box-shadow:0 0 20px rgba(147,51,234,.4); transform:scale(0.97); }
+  .agent-btn.active[data-agent="gpt4o"]  { background:#0d2e18; border-color:#16a34a; box-shadow:0 0 20px rgba(22,163,74,.4); transform:scale(0.97); }
+  .agent-btn.active[data-agent="mini"]   { background:#0d2210; border-color:#15803d; box-shadow:0 0 20px rgba(21,128,61,.4); transform:scale(0.97); }
+  .agent-btn.active[data-agent="qwen"]   { background:#2a1e0a; border-color:#d97706; box-shadow:0 0 20px rgba(217,119,6,.4); transform:scale(0.97); }
+  .agent-btn.active[data-agent="llama"]  { background:#2a150a; border-color:#ea580c; box-shadow:0 0 20px rgba(234,88,12,.4); transform:scale(0.97); }
+
+  /* Pulse ring when recording */
+  .agent-btn.recording::after {
+    content:"";
+    position:absolute; inset:-4px;
+    border-radius:16px;
+    border:2px solid currentColor;
+    animation: ringPulse 1s ease-in-out infinite;
+    opacity:.6;
+  }
+  @keyframes ringPulse {
+    0%,100% { transform:scale(1); opacity:.6; }
+    50%      { transform:scale(1.04); opacity:.15; }
+  }
+
+  .agent-btn.processing { opacity:.5; cursor:not-allowed; }
+
+  /* Status */
+  #status { font-size:0.8rem; color:#555; height:18px; text-align:center; }
+  #status.active { color:#a78bfa; }
+  #status.error  { color:#f87171; }
+
+  /* Active brain */
+  #active-brain { font-size:0.7rem; color:#333; text-align:center; }
+  #active-brain span { color:#555; }
+
+  /* Text input */
+  .text-row { display:flex; gap:8px; width:100%; max-width:680px; }
+  #text-input {
+    flex:1; padding:10px 14px; border-radius:8px;
+    border:1px solid #1e1e3a; background:#0d0d1a; color:#e0e0e0;
+    font-size:0.86rem; outline:none;
+  }
+  #text-input:focus { border-color:#4f46e5; }
+  #text-input::placeholder { color:#333; }
+  #send-btn {
+    padding:10px 16px; border-radius:8px; border:none;
+    background:#4f46e5; color:white; font-size:0.86rem; cursor:pointer;
+  }
+  #send-btn:hover { background:#4338ca; }
+  #send-btn:disabled { opacity:.4; cursor:not-allowed; }
+
+  /* Bottom controls row */
+  .bottom-row {
+    display:flex; align-items:center; gap:14px;
+    width:100%; max-width:680px;
+    justify-content:center;
+  }
+  #preview-btn {
+    padding:5px 12px; border-radius:6px; border:1px solid #1e1e3a;
+    background:transparent; color:#555; font-size:0.72rem; cursor:pointer;
+  }
+  #preview-btn:hover { border-color:#4f46e5; color:#a78bfa; }
+  #new-context-btn {
+    padding:5px 12px; border-radius:6px; border:1px solid #1e3a2a;
+    background:transparent; color:#4ade80; font-size:0.72rem; cursor:pointer; font-weight:600;
+  }
+  #new-context-btn:hover { background:#0d2e18; }
+  #reset-btn { font-size:0.7rem; color:#333; background:none; border:none; cursor:pointer; text-decoration:underline; }
+  #reset-btn:hover { color:#666; }
+
+  /* Context selector strip */
+  #context-strip {
+    display:flex; align-items:center; gap:6px;
+    width:100%; max-width:680px;
+    overflow-x:auto; padding-bottom:2px;
+  }
+  .ctx-pill {
+    padding:3px 10px; border-radius:20px; border:1px solid #1e1e3a;
+    background:transparent; color:#555; font-size:0.68rem; cursor:pointer; white-space:nowrap;
+    flex-shrink:0;
+  }
+  .ctx-pill.active { border-color:#4f46e5; color:#a78bfa; background:#1a1a3a; }
+  .ctx-pill:hover { border-color:#333; color:#888; }
+
+  /* hidden — kept for JS compat */
+  #voice-select, #rate-slider, #rate-label { display:none; }
+</style>
+</head>
+<body>
+
+<h1>🦞 clawd voice</h1>
+<p class="subtitle">hold a brain to talk · release to send</p>
+
+<div id="chat-log">
+  <div class="msg system">Hold any brain button and speak. Release to send.</div>
+</div>
+
+<div id="bottom-panel">
+
+<div id="context-strip"></div>
+<p class="agents-label">choose your brain</p>
+
+<div class="agent-grid">
+  <div class="agent-btn" data-agent="qwen" data-backend="ollama" data-model="qwen2.5:7b">
+    <div class="agent-icon">🏠</div>
+    <div class="agent-name">Qwen 7b</div>
+    <div class="agent-desc">local · offline</div>
+    <div class="agent-voice">Rishi</div>
+  </div>
+  <div class="agent-btn" data-agent="mini" data-backend="openai" data-model="gpt-4o-mini">
+    <div class="agent-icon">🚀</div>
+    <div class="agent-name">4o-mini</div>
+    <div class="agent-desc">fast · no memory</div>
+    <div class="agent-voice">Eddy</div>
+  </div>
+  <div class="agent-btn" data-agent="llama" data-backend="ollama" data-model="llama3.3:latest">
+    <div class="agent-icon">🦙</div>
+    <div class="agent-name">Llama 70b</div>
+    <div class="agent-desc">local · smartest</div>
+    <div class="agent-voice">Karen</div>
+  </div>
+  <div class="agent-btn" data-agent="gpt4o" data-backend="openai" data-model="gpt-4o">
+    <div class="agent-icon">⚡</div>
+    <div class="agent-name">GPT-4o</div>
+    <div class="agent-desc">smart · no memory</div>
+    <div class="agent-voice">Daniel</div>
+  </div>
+  <div class="agent-btn" data-agent="sonnet" data-backend="openclaw" data-model="openclaw:clawdadsonnet">
+    <div class="agent-icon">🦞</div>
+    <div class="agent-name">Sonnet</div>
+    <div class="agent-desc">clawd · full memory</div>
+    <div class="agent-voice">Samantha</div>
+  </div>
+  <div class="agent-btn" data-agent="opus" data-backend="openclaw" data-model="openclaw:clawdadopus">
+    <div class="agent-icon">🧠</div>
+    <div class="agent-name">Opus</div>
+    <div class="agent-desc">clawd · deepest thinker</div>
+    <div class="agent-voice">Rocko</div>
+  </div>
+</div>
+
+<div id="active-brain">last used: <span id="brain-name">none</span></div>
+<div id="status">ready</div>
+
+<div class="text-row">
+  <input id="text-input" type="text" placeholder="Type to any brain..." />
+  <button id="send-btn">Send</button>
+</div>
+
+<div class="bottom-row">
+  <button id="new-context-btn">+ new context</button>
+  <button id="preview-btn">preview all</button>
+  <button id="reset-btn">clear all</button>
+</div>
+
+</div><!-- end #bottom-panel -->
+
+<!-- hidden elements kept for JS compat -->
+<select id="voice-select" style="display:none"><option value="Samantha" selected>Samantha</option></select>
+<input type="range" id="rate-slider" value="210" style="display:none">
+<span id="rate-label" style="display:none">210</span>
+
+<script>
+const SERVER = "http://127.0.0.1:7800";
+const LS_KEY  = "clawd_voice_sessions";
+
+const agentVoices = {
+  sonnet: { voice: "Samantha",             rate: 210 },
+  opus:   { voice: "Rocko (English (US))", rate: 195 },
+  gpt4o:  { voice: "Daniel",               rate: 210 },
+  mini:   { voice: "Eddy (English (US))",  rate: 220 },
+  qwen:   { voice: "Rishi",                rate: 200 },
+  llama:  { voice: "Karen",                rate: 200 },
+};
+
+// ── Session / localStorage ───────────────────────────────────────────────────
+// sessions = [ { id, label, createdAt, histories: {agentKey: [{role,content,agent?}]} } ]
+// currentSessionId = id of active session
+
+function loadSessions() {
+  try { return JSON.parse(localStorage.getItem(LS_KEY)) || []; } catch { return []; }
+}
+function saveSessions(sessions) {
+  localStorage.setItem(LS_KEY, JSON.stringify(sessions));
+}
+function newSession(label) {
+  return { id: Date.now().toString(), label, createdAt: Date.now(), histories: {}, messages: [] };
+}
+
+let sessions = loadSessions();
+if (!sessions.length) sessions.push(newSession("Session 1"));
+let currentSessionId = sessions[sessions.length - 1].id;
+
+function currentSession() { return sessions.find(s => s.id === currentSessionId); }
+function saveNow() { saveSessions(sessions); }
+
+// ── State ────────────────────────────────────────────────────────────────────
+let listening = false;
+let processing = false;
+let collectedTranscript = "";
+let recognition = null;
+let activeBtn = null;
+let defaultTextAgent = "sonnet";
+
+// ── DOM refs ─────────────────────────────────────────────────────────────────
+const statusEl      = document.getElementById("status");
+const chatLog       = document.getElementById("chat-log");
+const textInput     = document.getElementById("text-input");
+const sendBtn       = document.getElementById("send-btn");
+const resetBtn      = document.getElementById("reset-btn");
+const newCtxBtn     = document.getElementById("new-context-btn");
+const voiceSelect   = document.getElementById("voice-select");
+const rateSlider    = document.getElementById("rate-slider");
+const rateLabel     = document.getElementById("rate-label");
+const previewBtn    = document.getElementById("preview-btn");
+const brainName     = document.getElementById("brain-name");
+const contextStrip  = document.getElementById("context-strip");
+
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+rateSlider.addEventListener("input", () => { rateLabel.textContent = rateSlider.value; });
+
+function setStatus(msg, type="") { statusEl.textContent=msg; statusEl.className=type; }
+function agentLabel(btn) { return btn.querySelector(".agent-name").textContent; }
+
+// ── Context strip ─────────────────────────────────────────────────────────────
+function renderContextStrip() {
+  contextStrip.innerHTML = "";
+  sessions.forEach(s => {
+    const pill = document.createElement("button");
+    pill.className = "ctx-pill" + (s.id === currentSessionId ? " active" : "");
+    pill.textContent = s.label;
+    pill.title = new Date(s.createdAt).toLocaleString();
+    pill.addEventListener("click", () => switchSession(s.id));
+    contextStrip.appendChild(pill);
+  });
+}
+
+function switchSession(id) {
+  currentSessionId = id;
+  renderContextStrip();
+  renderChatLog();
+  brainName.textContent = "none";
+}
+
+// ── Chat log rendering ────────────────────────────────────────────────────────
+function renderChatLog() {
+  chatLog.innerHTML = "";
+  const sess = currentSession();
+  if (!sess || !sess.messages || !sess.messages.length) {
+    chatLog.innerHTML = '<div class="msg system">Hold any brain button and speak. Release to send.</div>';
+    return;
+  }
+  sess.messages.forEach(m => {
+    renderMessage(m.text, m.role, m.agentKey, false);
+  });
+}
+
+function renderMessage(text, role, agentKey, save=true) {
+  const div = document.createElement("div");
+  div.className = `msg ${role}`;
+  if (role !== "system") {
+    const label = document.createElement("div");
+    label.className = "label";
+    label.textContent = role === "user" ? "you" : "clawd";
+    if (agentKey && role === "agent") {
+      const tag = document.createElement("span");
+      tag.className = "brain-tag";
+      const btn = document.querySelector(`.agent-btn[data-agent="${agentKey}"]`);
+      tag.textContent = btn ? ` via ${agentLabel(btn)}` : ` via ${agentKey}`;
+      label.appendChild(tag);
+    }
+    div.appendChild(label);
+  }
+  const content = document.createElement("div");
+  content.textContent = text;
+  div.appendChild(content);
+  chatLog.appendChild(div);
+  chatLog.scrollTop = chatLog.scrollHeight;
+
+  if (save && role !== "system") {
+    const sess = currentSession();
+    if (!sess.messages) sess.messages = [];
+    sess.messages.push({ text, role, agentKey });
+    saveNow();
+  }
+  return div;
+}
+
+let liveDiv = null;
+function showLive(text) {
+  if (!liveDiv) {
+    liveDiv = document.createElement("div");
+    liveDiv.className = "msg user";
+    liveDiv.style.cssText = "opacity:.4;font-style:italic;align-self:flex-end;";
+    chatLog.appendChild(liveDiv);
+  }
+  liveDiv.textContent = text || "...";
+  chatLog.scrollTop = chatLog.scrollHeight;
+}
+function clearLive() { if (liveDiv) { liveDiv.remove(); liveDiv=null; } }
+
+async function playAudio(blob) {
+  return new Promise(resolve => {
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    audio.onended = () => { URL.revokeObjectURL(url); resolve(); };
+    audio.onerror = () => { URL.revokeObjectURL(url); resolve(); };
+    audio.play().catch(resolve);
+  });
+}
+
+// ── Shared transcript → per-brain history injection (Option C) ───────────────
+// sess.transcript = [ {role, content, agentKey, agentName} ] — the ground truth
+// sess.histories[agentKey] = LLM-formatted history for that specific brain
+// When a brain is asked its first question in a session OR is switching in,
+// we prepend a "here's what happened so far" summary to its system context.
+
+function buildHandoffContext(sess, agentKey) {
+  if (!sess.transcript || sess.transcript.length === 0) return null;
+  const lines = sess.transcript.map(m => {
+    if (m.role === "user") return `Austin: ${m.content}`;
+    return `${m.agentName || m.agentKey}: ${m.content}`;
+  });
+  return `[Conversation so far — you are picking up from this]\n${lines.join("\n")}\n[End of prior context. Continue naturally from here.]`;
+}
+
+// ── Send to agent ─────────────────────────────────────────────────────────────
+async function sendToAgent(text, btn) {
+  if (processing || !text.trim()) return;
+  processing = true;
+  sendBtn.disabled = true;
+  document.querySelectorAll(".agent-btn").forEach(b => b.classList.add("processing"));
+
+  const backend   = btn.dataset.backend;
+  const model     = btn.dataset.model;
+  const agentKey  = btn.dataset.agent;
+  const agentName = agentLabel(btn);
+
+  const sess = currentSession();
+  if (!sess.histories)  sess.histories  = {};
+  if (!sess.transcript) sess.transcript = [];
+
+  // If this brain hasn't spoken yet this session AND there's prior context from other brains,
+  // inject a handoff summary as a system-level user message in its history
+  const isFirstTurnForBrain = !sess.histories[agentKey] || sess.histories[agentKey].length === 0;
+  const hasPriorContext = sess.transcript.length > 0;
+
+  if (!sess.histories[agentKey]) sess.histories[agentKey] = [];
+
+  if (isFirstTurnForBrain && hasPriorContext) {
+    const handoff = buildHandoffContext(sess, agentKey);
+    if (handoff) {
+      // Inject as a user message so any backend understands it
+      sess.histories[agentKey].push({ role:"user", content: handoff });
+      sess.histories[agentKey].push({ role:"assistant", content: "Got it, I'm up to speed. Go ahead." });
+    }
+  }
+
+  // Add the actual user message
+  sess.histories[agentKey].push({ role:"user", content: text });
+  // Also add to shared transcript
+  sess.transcript.push({ role:"user", content: text, agentKey:"user", agentName:"Austin" });
+
+  brainName.textContent = agentName;
+  renderMessage(text, "user", agentKey);
+
+  try {
+    setStatus(`🧠 ${agentName} thinking...`, "active");
+
+    const thinkRes = await fetch(`${SERVER}/think`, {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ text, backend, model, history: sess.histories[agentKey] })
+    });
+    if (!thinkRes.ok) throw new Error(`think HTTP ${thinkRes.status}`);
+    const { reply } = await thinkRes.json();
+
+    sess.histories[agentKey].push({ role:"assistant", content: reply });
+    sess.transcript.push({ role:"assistant", content: reply, agentKey, agentName });
+    saveNow();
+    renderMessage(reply, "agent", agentKey);
+
+    setStatus("🔊 forming speech...", "active");
+    const av = agentVoices[agentKey] || { voice: "Samantha", rate: 210 };
+    const speakRes = await fetch(`${SERVER}/speak`, {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ text: reply, voice: av.voice, rate: av.rate })
+    });
+    if (!speakRes.ok) throw new Error(`speak HTTP ${speakRes.status}`);
+
+    setStatus("▶️ playing...", "active");
+    await playAudio(await speakRes.blob());
+    setStatus("ready — hold a brain to talk");
+
+  } catch(err) {
+    setStatus(`error: ${err.message}`, "error");
+    renderMessage(`⚠️ ${err.message}`, "system", null);
+    sess.histories[agentKey].pop();
+    sess.transcript.pop();
+  } finally {
+    processing = false;
+    sendBtn.disabled = false;
+    document.querySelectorAll(".agent-btn").forEach(b => b.classList.remove("processing"));
+    if (activeBtn) activeBtn.classList.remove("active","recording");
+  }
+}
+
+// ── Speech recognition ────────────────────────────────────────────────────────
+function setupRecognition(btn) {
+  if (!SpeechRecognition) { setStatus("Browser STT not supported","error"); return null; }
+  const r = new SpeechRecognition();
+  r.continuous = true; r.interimResults = true; r.lang = "en-US";
+  r.onstart = () => {
+    collectedTranscript = "";
+    btn.classList.add("active","recording");
+    setStatus(`🎙️ ${agentLabel(btn)}... release to send`, "active");
+  };
+  r.onresult = (e) => {
+    let interim = "";
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      if (e.results[i].isFinal) collectedTranscript += e.results[i][0].transcript + " ";
+      else interim += e.results[i][0].transcript;
+    }
+    showLive((collectedTranscript + interim).trim());
+  };
+  r.onerror = (e) => { if (e.error !== "no-speech") setStatus(`mic: ${e.error}`,"error"); };
+  r.onend = () => {
+    listening = false;
+    const text = collectedTranscript.trim();
+    clearLive();
+    if (text) sendToAgent(text, btn);
+    else { btn.classList.remove("active","recording"); setStatus("ready — hold a brain to talk"); }
+  };
+  return r;
+}
+
+function startListening(btn) {
+  if (processing || listening) return;
+  activeBtn = btn; defaultTextAgent = btn.dataset.agent;
+  recognition = setupRecognition(btn);
+  if (!recognition) return;
+  listening = true; recognition.start();
+}
+function stopListening() {
+  if (!listening || !recognition) return;
+  recognition.stop(); listening = false;
+}
+
+// ── Wire up buttons ───────────────────────────────────────────────────────────
+document.querySelectorAll(".agent-btn").forEach(btn => {
+  btn.addEventListener("mousedown",  () => startListening(btn));
+  btn.addEventListener("mouseup",    stopListening);
+  btn.addEventListener("mouseleave", () => { if (listening && activeBtn===btn) stopListening(); });
+  btn.addEventListener("touchstart", e => { e.preventDefault(); startListening(btn); });
+  btn.addEventListener("touchend",   e => { e.preventDefault(); stopListening(); });
+});
+
+sendBtn.addEventListener("click", () => {
+  const btn = document.querySelector(`.agent-btn[data-agent="${defaultTextAgent}"]`);
+  sendToAgent(textInput.value, btn); textInput.value = "";
+});
+textInput.addEventListener("keydown", e => {
+  if (e.key==="Enter" && !e.shiftKey) {
+    e.preventDefault();
+    const btn = document.querySelector(`.agent-btn[data-agent="${defaultTextAgent}"]`);
+    sendToAgent(textInput.value, btn); textInput.value = "";
+  }
+});
+
+// New context
+newCtxBtn.addEventListener("click", () => {
+  const label = `Session ${sessions.length + 1}`;
+  const sess = newSession(label);
+  sessions.push(sess);
+  currentSessionId = sess.id;
+  saveNow();
+  renderContextStrip();
+  renderChatLog();
+  brainName.textContent = "none";
+  setStatus("new context — hold a brain to talk");
+});
+
+// Clear all sessions
+resetBtn.addEventListener("click", () => {
+  if (!confirm("Clear ALL sessions and history?")) return;
+  sessions = [newSession("Session 1")];
+  currentSessionId = sessions[0].id;
+  saveNow();
+  renderContextStrip();
+  renderChatLog();
+  brainName.textContent = "none";
+  setStatus("ready — hold a brain to talk");
+});
+
+// Preview voices
+previewBtn.addEventListener("click", async () => {
+  previewBtn.disabled = true; previewBtn.textContent = "...";
+  const previews = [
+    { agent:"qwen",   text:"Rishi here. Qwen 7b, local and offline." },
+    { agent:"mini",   text:"Eddy here. 4o-mini, lightest and quickest." },
+    { agent:"llama",  text:"Karen here. Llama 70b, big local brain." },
+    { agent:"gpt4o",  text:"Daniel here. GPT-4o, smart and sharp." },
+    { agent:"sonnet", text:"Samantha. Sonnet with full memory." },
+    { agent:"opus",   text:"Rocko. Opus, the deepest thinker." },
+  ];
+  try {
+    for (const p of previews) {
+      const av = agentVoices[p.agent];
+      const res = await fetch(`${SERVER}/speak`, {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ text: p.text, voice: av.voice, rate: av.rate })
+      });
+      await playAudio(await res.blob());
+    }
+  } finally { previewBtn.disabled=false; previewBtn.textContent="preview all"; }
+});
+
+// Spacebar PTT
+let spaceHeld = false;
+document.addEventListener("keydown", e => {
+  if (e.code==="Space" && !e.target.matches("input") && !spaceHeld) {
+    e.preventDefault(); spaceHeld = true;
+    startListening(document.querySelector(`.agent-btn[data-agent="${defaultTextAgent}"]`));
+  }
+});
+document.addEventListener("keyup", e => {
+  if (e.code==="Space" && !e.target.matches("input")) {
+    e.preventDefault(); spaceHeld = false; stopListening();
+  }
+});
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+renderContextStrip();
+renderChatLog();
+setStatus("ready — hold a brain to talk");
+</script>
+</body>
+</html>
